@@ -38,7 +38,7 @@ export default function HelpCareRechner() {
   const [nacht, setNacht] = useState(false);
   const [fuehrerschein, setFuehrerschein] = useState(false);
   const [deutsch, setDeutsch] = useState("Grund");
-  const [foerderungen, setFoerderungen] = useState({ steuer: false, verhinderung: false });
+  const [foerderungen, setFoerderungen] = useState({ pflegegeld: true, steuer: false, verhinderung: false });
 
   const result = useMemo(() => {
     let basis = CONFIG.fixpreis;
@@ -49,13 +49,13 @@ export default function HelpCareRechner() {
     basis += CONFIG.zuschlaege.deutsch[deutsch] || 0;
 
     let foerd = 0;
-    foerd += CONFIG.foerderung[pflegestufe1] || 0;
-    foerd += CONFIG.foerderung[pflegestufe2] || 0;
+    const pflegegeldSum = (CONFIG.foerderung[pflegestufe1] || 0) + (CONFIG.foerderung[pflegestufe2] || 0);
+    if (foerderungen.pflegegeld) foerd += pflegegeldSum;
     const personsSelected = 1 + (pflegestufe2 > 0 ? 1 : 0);
     if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer * personsSelected;
     if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung * personsSelected;
 
-    return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd };
+    return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd, pflegegeldSum, personsSelected };
   }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen]);
 
   function toggleFoerd(key) { setFoerderungen((prev) => ({ ...prev, [key]: !prev[key] })); }
@@ -140,8 +140,8 @@ export default function HelpCareRechner() {
     const nameParts = (name || "").trim().split(/\s+/);
     const firstName = nameParts[0] || "";
     const lastName = nameParts.slice(1).join(" ") || "";
-    const personsSelected = 1 + (pflegestufe2 > 0 ? 1 : 0);
-    const pflegegeldAmount = (CONFIG.foerderung[pflegestufe1] || 0) + (CONFIG.foerderung[pflegestufe2] || 0);
+    const personsSelected = result.personsSelected;
+    const pflegegeldAmount = foerderungen.pflegegeld ? result.pflegegeldSum : 0;
     const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung * personsSelected : 0;
     const steuerAmount = foerderungen.steuer ? CONFIG.foerderung.steuer * personsSelected : 0;
 
@@ -252,6 +252,9 @@ export default function HelpCareRechner() {
             </select>
 
             <h3 className="text-md font-medium mt-4 mb-2">Förderung berücksichtigen</h3>
+            <label className="block">
+              <input type="checkbox" checked={foerderungen.pflegegeld} onChange={() => toggleFoerd("pflegegeld")} /> Pflegegeld für Pflegegrad ({formatEUR(result.pflegegeldSum || 0)})
+            </label>
             <label className="block">
               <input type="checkbox" checked={foerderungen.steuer} onChange={() => toggleFoerd("steuer")} /> Steuervorteil ({formatEUR(CONFIG.foerderung.steuer)})
             </label>
