@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import html2pdf from "html2pdf.js";
 
 // ###############################################################
 // HelpCare Preisrechner – mit PDF-Button (ohne Backend)
@@ -117,7 +118,7 @@ export default function HelpCareRechner() {
     return Object.entries(data).reduce((acc, [key, val]) => acc.replace(new RegExp(`{{\\s*${key}\\s*}}`, "g"), String(val ?? "")), tpl);
   }
 
-  function handleCreatePDF() {
+  async function handleCreatePDF() {
     const datum = new Date().toLocaleDateString("de-DE");
     const html = buildHTMLFromTemplate({
       DATUM: datum,
@@ -135,7 +136,27 @@ export default function HelpCareRechner() {
       PREIS_MIT_FOERDERUNG: formatEUR(result.mitFoerderung),
     });
 
-    // 1) Versuche, in einem versteckten iframe zu drucken (funktioniert meist auch in Previews)
+    // 1) Direkter PDF‑Download via html2pdf.js
+    try {
+      const filenameSafeName = (name || "Angebot").replace(/[^a-zA-Z0-9_\-ÄÖÜäöüß ]+/g, "").trim() || "Angebot";
+      const filename = `HelpCare-Angebot_${filenameSafeName}_${datum}.pdf`;
+      const options = {
+        margin:       [10, 10, 10, 10], // mm
+        filename,
+        image:        { type: "jpeg", quality: 0.98 },
+        html2canvas:  { scale: 2, useCORS: true, dpi: 192, letterRendering: true },
+        jsPDF:        { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak:    { mode: ["css", "legacy"], avoid: [".no-break"] },
+      };
+
+      await html2pdf().set(options).from(html).save();
+      return; // erfolgreich gespeichert
+    } catch (err) {
+      // Fallback auf Druckdialog
+      console.warn("html2pdf fehlgeschlagen, nutze Print-Fallback", err);
+    }
+
+    // 2) Fallback: Druckdialog über verstecktes iframe (funktioniert oft auch in Previews)
     const iframe = document.createElement("iframe");
     iframe.style.position = "fixed";
     iframe.style.right = "0";
@@ -154,7 +175,7 @@ export default function HelpCareRechner() {
     };
     iframe.srcdoc = html;
 
-    // 2) Fallback: neues Tab öffnen (falls iframe blockiert ist)
+    // 3) Alternativ-Fallback: neues Tab öffnen (falls iframe blockiert ist)
     // const w = window.open("", "_blank");
     // if (w) { w.document.open(); w.document.write(html); w.document.close(); }
   }
