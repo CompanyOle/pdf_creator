@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import html2pdf from "html2pdf.js";
+import angebotTemplateRaw from "../angebotstemplate.html?raw";
 
 // ###############################################################
 // HelpCare Preisrechner – mit PDF-Button (ohne Backend)
@@ -118,22 +119,34 @@ export default function HelpCareRechner() {
     return Object.entries(data).reduce((acc, [key, val]) => acc.replace(new RegExp(`{{\\s*${key}\\s*}}`, "g"), String(val ?? "")), tpl);
   }
 
+  // ---------- Produktives Angebotstemplate (angebotstemplate.html) ----------
+  function escapeRegExp(s) {
+    return s.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+  }
+
+  function buildHTMLFromAngebotTemplate(data) {
+    // Nur definierte Platzhalter hart ersetzen, um CSS-Klammern nicht zu beeinflussen
+    let html = String(angebotTemplateRaw);
+    for (const [key, val] of Object.entries(data)) {
+      const pattern = new RegExp(`\\{${escapeRegExp(key)}\\}\\}?`, "g"); // toleriert evtl. doppelte schließende Klammer
+      html = html.replace(pattern, String(val ?? ""));
+    }
+    return html;
+  }
+
   async function handleCreatePDF() {
     const datum = new Date().toLocaleDateString("de-DE");
-    const html = buildHTMLFromTemplate({
-      DATUM: datum,
-      NAME: name || "–",
-      EMAIL: email || "–",
-      TELEFON: telefon || "–",
-      PFLEGESTUFE1: `Stufe ${pflegestufe1} (+${CONFIG.pflegestufe1[pflegestufe1]}€)`,
-      PFLEGESTUFE2: `Stufe ${pflegestufe2} (+${CONFIG.pflegestufe2[pflegestufe2]}€)`,
-      NACHTEINSAETZE: nacht ? `Ja (+${CONFIG.zuschlaege.nachteinsaetze}€)` : "Nein",
-      FUEHRERSCHEIN: fuehrerschein ? `Ja (+${CONFIG.zuschlaege.fuehrerschein}€)` : "Nein",
-      DEUTSCH: `${deutsch} (+${CONFIG.zuschlaege.deutsch[deutsch]}€)`,
-      PREIS_FIX: formatEUR(CONFIG.fixpreis),
-      FOERDERUNG_GESAMT: "- " + formatEUR(result.foerd),
-      PREIS_NETTO: formatEUR(result.netto),
-      PREIS_MIT_FOERDERUNG: formatEUR(result.mitFoerderung),
+    const nameParts = (name || "").trim().split(/\s+/);
+    const firstName = nameParts[0] || "";
+    const lastName = nameParts.slice(1).join(" ") || "";
+    const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung : 0;
+
+    // Belege die Platzhalter des HTML-Templates
+    const html = buildHTMLFromAngebotTemplate({
+      firstName: firstName || "–",
+      lastName: lastName || "–",
+      globalPrice: formatEUR(result.netto),
+      verhinderungspflegeDiscount: (verhinderungAmount > 0 ? "- " : "- ") + formatEUR(verhinderungAmount),
     });
 
     // 1) Direkter PDF‑Download via html2pdf.js
@@ -144,7 +157,7 @@ export default function HelpCareRechner() {
         margin:       [10, 10, 10, 10], // mm
         filename,
         image:        { type: "jpeg", quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, dpi: 192, letterRendering: true },
+        html2canvas:  { scale: 2, useCORS: true, allowTaint: true, dpi: 192, letterRendering: true },
         jsPDF:        { unit: "mm", format: "a4", orientation: "portrait" },
         pagebreak:    { mode: ["css", "legacy"], avoid: [".no-break"] },
       };
