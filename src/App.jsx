@@ -304,3 +304,32 @@ function Row({ label, value, emphasize = false, strong = false, subtle = false }
     </div>
   );
 }
+
+// Externe Bilder als Data-URIs einbetten, damit html2canvas sie sicher rendert
+  async function inlineExternalImages(html) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const images = Array.from(doc.images || []);
+      await Promise.all(images.map(async (img) => {
+        const src = img.getAttribute("src");
+        if (!src || /^data:/i.test(src)) return;
+        try {
+          const resp = await fetch(src, { mode: "cors" });
+          if (!resp.ok) return;
+          const blob = await resp.blob();
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          img.setAttribute("src", dataUrl);
+          img.setAttribute("crossorigin", "anonymous");
+        } catch (_) { /* ignore single image errors */ }
+      }));
+      return "<!DOCTYPE html>" + doc.documentElement.outerHTML;
+    } catch {
+      return html;
+    }
+  }
