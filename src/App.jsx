@@ -138,6 +138,34 @@ export default function HelpCareRechner() {
     return html;
   }
 
+   async function inlineExternalImages(html) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const images = Array.from(doc.images || []);
+      await Promise.all(images.map(async (img) => {
+        const src = img.getAttribute("src");
+        if (!src || /^data:/i.test(src)) return;
+        try {
+          const resp = await fetch(src, { mode: "cors" });
+          if (!resp.ok) return;
+          const blob = await resp.blob();
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          img.setAttribute("src", dataUrl);
+          img.setAttribute("crossorigin", "anonymous");
+        } catch (_) { /* ignore single image errors */ }
+      }));
+      return "<!DOCTYPE html>" + doc.documentElement.outerHTML;
+    } catch {
+      return html;
+    }
+  }
+
   async function handleCreatePDF() {
     const datum = new Date().toLocaleDateString("de-DE");
     const nameParts = (name || "").trim().split(/\s+/);
@@ -149,7 +177,7 @@ export default function HelpCareRechner() {
     const steuerAmount = foerderungen.steuer ? CONFIG.foerderung.steuer * personsSelected : 0;
 
     // Belege die Platzhalter des HTML-Templates
-    const html = buildHTMLFromAngebotTemplate({
+   const rawHtml = buildHTMLFromAngebotTemplate({
       firstName: firstName || "–",
       lastName: lastName || "–",
       globalPrice: formatEUR(result.netto),
@@ -158,6 +186,8 @@ export default function HelpCareRechner() {
       steuererleichterung: "- " + formatEUR(steuerAmount),
       preisMitFoerderung: formatEUR(result.mitFoerderung),
     });
+
+     const html = await inlineExternalImages(rawHtml);
 
     // 1) Direkter PDF‑Download via html2pdf.js
     try {
@@ -305,31 +335,4 @@ function Row({ label, value, emphasize = false, strong = false, subtle = false }
   );
 }
 
-// Externe Bilder als Data-URIs einbetten, damit html2canvas sie sicher rendert
-  async function inlineExternalImages(html) {
-    try {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, "text/html");
-      const images = Array.from(doc.images || []);
-      await Promise.all(images.map(async (img) => {
-        const src = img.getAttribute("src");
-        if (!src || /^data:/i.test(src)) return;
-        try {
-          const resp = await fetch(src, { mode: "cors" });
-          if (!resp.ok) return;
-          const blob = await resp.blob();
-          const dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result || ""));
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          img.setAttribute("src", dataUrl);
-          img.setAttribute("crossorigin", "anonymous");
-        } catch (_) { /* ignore single image errors */ }
-      }));
-      return "<!DOCTYPE html>" + doc.documentElement.outerHTML;
-    } catch {
-      return html;
-    }
-  }
+ 
