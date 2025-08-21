@@ -39,24 +39,27 @@ export default function HelpCareRechner() {
   const [fuehrerschein, setFuehrerschein] = useState(false);
   const [deutsch, setDeutsch] = useState("Grund");
   const [foerderungen, setFoerderungen] = useState({ pflegegeld: true, steuer: false, verhinderung: false });
+  const [twoPersons, setTwoPersons] = useState(false);
+  const [manualDiscount, setManualDiscount] = useState(0);
 
   const result = useMemo(() => {
     let basis = CONFIG.fixpreis;
     basis += CONFIG.pflegestufe1[pflegestufe1] || 0;
-    basis += CONFIG.pflegestufe2[pflegestufe2] || 0;
+    basis += twoPersons ? (CONFIG.pflegestufe2[pflegestufe2] || 0) : 0;
     if (nacht) basis += CONFIG.zuschlaege.nachteinsaetze;
     if (fuehrerschein) basis += CONFIG.zuschlaege.fuehrerschein;
     basis += CONFIG.zuschlaege.deutsch[deutsch] || 0;
+    basis = Math.max(basis - (Number(manualDiscount) || 0), 0);
 
     let foerd = 0;
-    const pflegegeldSum = (CONFIG.foerderung[pflegestufe1] || 0) + (CONFIG.foerderung[pflegestufe2] || 0);
+    const pflegegeldSum = (CONFIG.foerderung[pflegestufe1] || 0) + (twoPersons ? (CONFIG.foerderung[pflegestufe2] || 0) : 0);
     if (foerderungen.pflegegeld) foerd += pflegegeldSum;
-    const personsSelected = 1 + (pflegestufe2 > 0 ? 1 : 0);
+    const personsSelected = twoPersons ? 2 : 1;
     if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer * personsSelected;
     if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung * personsSelected;
 
     return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd, pflegegeldSum, personsSelected };
-  }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen]);
+  }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen, twoPersons, manualDiscount]);
 
   function toggleFoerd(key) { setFoerderungen((prev) => ({ ...prev, [key]: !prev[key] })); }
 
@@ -216,6 +219,14 @@ export default function HelpCareRechner() {
             </div>
 
             <h2 className="text-lg font-medium mb-3">Kriterien</h2>
+
+            <div className="mb-2">
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={twoPersons} onChange={(e) => setTwoPersons(e.target.checked)} />
+                Zwei Personen berücksichtigen
+              </label>
+            </div>
+
             <label className="block mb-2">Pflegestufe Person 1</label>
             <select value={pflegestufe1} onChange={(e) => setPflegestufe1(Number(e.target.value))} className="mb-4 w-full border rounded p-2">
               {Object.keys(CONFIG.pflegestufe1).map((key) => (
@@ -224,7 +235,7 @@ export default function HelpCareRechner() {
             </select>
 
             <label className="block mb-2">Pflegestufe Person 2</label>
-            <select value={pflegestufe2} onChange={(e) => setPflegestufe2(Number(e.target.value))} className="mb-4 w-full border rounded p-2">
+            <select value={pflegestufe2} onChange={(e) => setPflegestufe2(Number(e.target.value))} className="mb-4 w-full border rounded p-2" disabled={!twoPersons}>
               {Object.keys(CONFIG.pflegestufe2).map((key) => (
                 <option key={key} value={key}>Stufe {key} (+{CONFIG.pflegestufe2[key]}€)</option>
               ))}
@@ -250,6 +261,9 @@ export default function HelpCareRechner() {
                 <option key={key} value={key}>{key} (+{CONFIG.zuschlaege.deutsch[key]}€)</option>
               ))}
             </select>
+
+            <label className="block mb-2">Manueller Rabatt (€/Monat)</label>
+            <input type="number" className="mb-4 w-full border rounded p-2" value={manualDiscount} onChange={(e) => setManualDiscount(Number(e.target.value || 0))} />
 
             <h3 className="text-md font-medium mt-4 mb-2">Förderung berücksichtigen</h3>
             <label className="block">
