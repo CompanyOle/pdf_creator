@@ -51,8 +51,9 @@ export default function HelpCareRechner() {
     let foerd = 0;
     foerd += CONFIG.foerderung[pflegestufe1] || 0;
     foerd += CONFIG.foerderung[pflegestufe2] || 0;
-    if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer;
-    if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung;
+    const personsSelected = 1 + (pflegestufe2 > 0 ? 1 : 0);
+    if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer * personsSelected;
+    if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung * personsSelected;
 
     return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd };
   }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen]);
@@ -139,14 +140,20 @@ export default function HelpCareRechner() {
     const nameParts = (name || "").trim().split(/\s+/);
     const firstName = nameParts[0] || "";
     const lastName = nameParts.slice(1).join(" ") || "";
-    const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung : 0;
+    const personsSelected = 1 + (pflegestufe2 > 0 ? 1 : 0);
+    const pflegegeldAmount = (CONFIG.foerderung[pflegestufe1] || 0) + (CONFIG.foerderung[pflegestufe2] || 0);
+    const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung * personsSelected : 0;
+    const steuerAmount = foerderungen.steuer ? CONFIG.foerderung.steuer * personsSelected : 0;
 
     // Belege die Platzhalter des HTML-Templates
     const html = buildHTMLFromAngebotTemplate({
       firstName: firstName || "–",
       lastName: lastName || "–",
       globalPrice: formatEUR(result.netto),
-      verhinderungspflegeDiscount: (verhinderungAmount > 0 ? "- " : "- ") + formatEUR(verhinderungAmount),
+      pflegegeldRabat: "- " + formatEUR(pflegegeldAmount),
+      verhinderungspflege: "- " + formatEUR(verhinderungAmount),
+      steuererleichterung: "- " + formatEUR(steuerAmount),
+      preisMitFoerderung: formatEUR(result.mitFoerderung),
     });
 
     // 1) Direkter PDF‑Download via html2pdf.js
