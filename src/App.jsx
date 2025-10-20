@@ -38,24 +38,28 @@ export default function HelpCareRechner() {
   const [nacht, setNacht] = useState(false);
   const [fuehrerschein, setFuehrerschein] = useState(false);
   const [deutsch, setDeutsch] = useState("Grund");
-  const [foerderungen, setFoerderungen] = useState({ steuer: false, verhinderung: false });
+  const [foerderungen, setFoerderungen] = useState({ pflegegeld: true, steuer: false, verhinderung: false });
+  const [twoPersons, setTwoPersons] = useState(false);
+  const [manualDiscount, setManualDiscount] = useState(0);
 
   const result = useMemo(() => {
     let basis = CONFIG.fixpreis;
     basis += CONFIG.pflegestufe1[pflegestufe1] || 0;
-    basis += CONFIG.pflegestufe2[pflegestufe2] || 0;
+    basis += twoPersons ? (CONFIG.pflegestufe2[pflegestufe2] || 0) : 0;
     if (nacht) basis += CONFIG.zuschlaege.nachteinsaetze;
     if (fuehrerschein) basis += CONFIG.zuschlaege.fuehrerschein;
     basis += CONFIG.zuschlaege.deutsch[deutsch] || 0;
+    basis = Math.max(basis - (Number(manualDiscount) || 0), 0);
 
     let foerd = 0;
-    foerd += CONFIG.foerderung[pflegestufe1] || 0;
-    foerd += CONFIG.foerderung[pflegestufe2] || 0;
-    if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer;
-    if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung;
+    const pflegegeldSum = (CONFIG.foerderung[pflegestufe1] || 0) + (twoPersons ? (CONFIG.foerderung[pflegestufe2] || 0) : 0);
+    if (foerderungen.pflegegeld) foerd += pflegegeldSum;
+    const personsSelected = twoPersons ? 2 : 1;
+    if (foerderungen.steuer) foerd += CONFIG.foerderung.steuer * personsSelected;
+    if (foerderungen.verhinderung) foerd += CONFIG.foerderung.verhinderung * personsSelected;
 
-    return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd };
-  }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen]);
+    return { netto: basis, mitFoerderung: Math.max(basis - foerd, 0), foerd, pflegegeldSum, personsSelected };
+  }, [pflegestufe1, pflegestufe2, nacht, fuehrerschein, deutsch, foerderungen, twoPersons, manualDiscount]);
 
   function toggleFoerd(key) { setFoerderungen((prev) => ({ ...prev, [key]: !prev[key] })); }
 
@@ -134,20 +138,56 @@ export default function HelpCareRechner() {
     return html;
   }
 
+   async function inlineExternalImages(html) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const images = Array.from(doc.images || []);
+      await Promise.all(images.map(async (img) => {
+        const src = img.getAttribute("src");
+        if (!src || /^data:/i.test(src)) return;
+        try {
+          const resp = await fetch(src, { mode: "cors" });
+          if (!resp.ok) return;
+          const blob = await resp.blob();
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ""));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          img.setAttribute("src", dataUrl);
+          img.setAttribute("crossorigin", "anonymous");
+        } catch (_) { /* ignore single image errors */ }
+      }));
+      return "<!DOCTYPE html>" + doc.documentElement.outerHTML;
+    } catch {
+      return html;
+    }
+  }
+
   async function handleCreatePDF() {
     const datum = new Date().toLocaleDateString("de-DE");
     const nameParts = (name || "").trim().split(/\s+/);
     const firstName = nameParts[0] || "";
     const lastName = nameParts.slice(1).join(" ") || "";
-    const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung : 0;
+    const personsSelected = result.personsSelected;
+    const pflegegeldAmount = foerderungen.pflegegeld ? result.pflegegeldSum : 0;
+    const verhinderungAmount = foerderungen.verhinderung ? CONFIG.foerderung.verhinderung * personsSelected : 0;
+    const steuerAmount = foerderungen.steuer ? CONFIG.foerderung.steuer * personsSelected : 0;
 
     // Belege die Platzhalter des HTML-Templates
-    const html = buildHTMLFromAngebotTemplate({
+   const rawHtml = buildHTMLFromAngebotTemplate({
       firstName: firstName || "–",
       lastName: lastName || "–",
       globalPrice: formatEUR(result.netto),
-      verhinderungspflegeDiscount: (verhinderungAmount > 0 ? "- " : "- ") + formatEUR(verhinderungAmount),
+      pflegegeldRabat: "- " + formatEUR(pflegegeldAmount),
+      verhinderungspflege: "- " + formatEUR(verhinderungAmount),
+      steuererleichterung: "- " + formatEUR(steuerAmount),
+      preisMitFoerderung: formatEUR(result.mitFoerderung),
     });
+
+     const html = await inlineExternalImages(rawHtml);
 
     // 1) Direkter PDF‑Download via html2pdf.js
     try {
@@ -209,6 +249,14 @@ export default function HelpCareRechner() {
             </div>
 
             <h2 className="text-lg font-medium mb-3">Kriterien</h2>
+
+            <div className="mb-2">
+              <label className="inline-flex items-center gap-2">
+                <input type="checkbox" checked={twoPersons} onChange={(e) => setTwoPersons(e.target.checked)} />
+                Zwei Personen berücksichtigen
+              </label>
+            </div>
+
             <label className="block mb-2">Pflegestufe Person 1</label>
             <select value={pflegestufe1} onChange={(e) => setPflegestufe1(Number(e.target.value))} className="mb-4 w-full border rounded p-2">
               {Object.keys(CONFIG.pflegestufe1).map((key) => (
@@ -217,7 +265,7 @@ export default function HelpCareRechner() {
             </select>
 
             <label className="block mb-2">Pflegestufe Person 2</label>
-            <select value={pflegestufe2} onChange={(e) => setPflegestufe2(Number(e.target.value))} className="mb-4 w-full border rounded p-2">
+            <select value={pflegestufe2} onChange={(e) => setPflegestufe2(Number(e.target.value))} className="mb-4 w-full border rounded p-2" disabled={!twoPersons}>
               {Object.keys(CONFIG.pflegestufe2).map((key) => (
                 <option key={key} value={key}>Stufe {key} (+{CONFIG.pflegestufe2[key]}€)</option>
               ))}
@@ -244,7 +292,13 @@ export default function HelpCareRechner() {
               ))}
             </select>
 
+            <label className="block mb-2">Manueller Rabatt (€/Monat)</label>
+            <input type="number" className="mb-4 w-full border rounded p-2" value={manualDiscount} onChange={(e) => setManualDiscount(Number(e.target.value || 0))} />
+
             <h3 className="text-md font-medium mt-4 mb-2">Förderung berücksichtigen</h3>
+            <label className="block">
+              <input type="checkbox" checked={foerderungen.pflegegeld} onChange={() => toggleFoerd("pflegegeld")} /> Pflegegeld für Pflegegrad ({formatEUR(result.pflegegeldSum || 0)})
+            </label>
             <label className="block">
               <input type="checkbox" checked={foerderungen.steuer} onChange={() => toggleFoerd("steuer")} /> Steuervorteil ({formatEUR(CONFIG.foerderung.steuer)})
             </label>
@@ -280,3 +334,5 @@ function Row({ label, value, emphasize = false, strong = false, subtle = false }
     </div>
   );
 }
+
+ 
